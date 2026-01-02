@@ -791,5 +791,5 @@ return
 	-- extra functions for astarpathfinder
 	CheckWalkableFromPoint = CheckWalkableFromPoint,
 	IsWalkablePoint = IsWalkablePoint,
-	calcGroundSpeedMulti = calcGroundSpeedMulti,
+	CalcGroundSpeedMulti = calcGroundSpeedMulti,
 }

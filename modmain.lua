@@ -1,4 +1,6 @@
+
 GLOBAL.setmetatable(env, {__index = function(t, k) return GLOBAL.rawget(GLOBAL, k) end})
+modimport("scripts/misc/foolsday_joke.lua")
 if TheNet:IsDedicated()  then  return end
 
 -------------------ASSETS----------------------------
@@ -28,52 +30,84 @@ local pathfinder = nil
 
 local ALLOW_PATHFIND_FOGOFWAR = GetModConfigData("ALLOW_FOGOFWAR")
 
-AddPlayerPostInit(function(player)
-	player:DoTaskInTime(0, function()
-		if ThePlayer ~= nil and player == ThePlayer then
-			-- add lua pathfinder
-			if player.components.ngl_astarpathfinder == nil then
-				player:AddComponent("ngl_astarpathfinder")
-			end
-
-			-- add official pathfinder
-			if player.components.ngl_pathfinder == nil then
-				player:AddComponent("ngl_pathfinder")
-			end
-
-			-- add a pathfinder that fuse lua and cpp pathfinder result
-			if player.components.ngl_fusedpathfinder == nil then
-				player:AddComponent("ngl_fusedpathfinder")
-			end
-
-			-- add pathfollower component to do pathfollow work
-			if player.components.ngl_pathfollower == nil then
-				player:AddComponent("ngl_pathfollower")
-			end
-
-			pathfinder = PATHFINDER == "klei's" and player.components.ngl_pathfinder or player.components.ngl_fusedpathfinder
-
-			-- override for island adventure mod
-			if TheWorld and (TheWorld:HasTag("island") or TheWorld:HasTag("volcano"))then
-				pathfinder = player.components.ngl_pathfinder
-			end
-
-			-- pathfinder for main path search
-			player.components.ngl_pathfollower:SetPathfinder(pathfinder)
-			-- pathfinder for sub path search (dymanic path adjustment to handle the obstacles out of the loading range)
-			-- player.components.ngl_pathfollower.subsearch_pathfinder = pathfinder
-			-- there's some problems to use LUA pathfinder in subpath searching when the tiles of startpos and endpos is adjacent(see FindNearbyWalkableCenterPoint)
-
-			player.components.ngl_pathfollower.allow_pathfinding_fog_of_war = ALLOW_PATHFIND_FOGOFWAR
+local function SetTimeScale_ClientAndServer(multi)
+	TheSim:SetTimeScale(multi)
+	if not TheWorld.ismastersim then
+		local x, y, z = TheSim:ProjectScreenPos(TheSim:GetPosition())
+		TheNet:SendRemoteExecute("TheSim:SetTimeScale("..multi..")", x, z)
+	end
+end
+-- increase the sim timescale during the autowalking
+local TIMESCALE_TWEAK_MULTI = GetModConfigData("TIMESCALE_TWEAK_MULTI")
+local ori_simtimescale, in_tweaking
+local function GetPlayerNum()
+	local client_objs = TheNet:GetClientTable() or {}
+	return not TheNet:GetServerIsClientHosted() and #client_objs - 1 or #client_objs
+end
+local function SetSimTimeScaleTweakEnabled(enabled)
+	if enabled then
+		if TheNet:GetIsServerAdmin() and GetPlayerNum() == 1 and not in_tweaking then
+			ori_simtimescale = TheSim:GetTimeScale()
+			SetTimeScale_ClientAndServer(ori_simtimescale * TIMESCALE_TWEAK_MULTI)
+			in_tweaking = true
 		end
-	end)
+	else
+		if in_tweaking and ori_simtimescale then
+			SetTimeScale_ClientAndServer(ori_simtimescale)
+			in_tweaking = false
+		end
+	end
+end
+
+AddComponentPostInit("playercontroller", function(self, player)
+	if ThePlayer ~= nil and player == ThePlayer then
+		-- add lua pathfinder
+		if player.components.ngl_astarpathfinder == nil then
+			player:AddComponent("ngl_astarpathfinder")
+		end
+
+		-- add official pathfinder
+		if player.components.ngl_pathfinder == nil then
+			player:AddComponent("ngl_pathfinder")
+		end
+
+		-- add a pathfinder that fuse lua and cpp pathfinder result
+		if player.components.ngl_fusedpathfinder == nil then
+			player:AddComponent("ngl_fusedpathfinder")
+		end
+
+		-- add pathfollower component to do pathfollow work
+		if player.components.ngl_pathfollower == nil then
+			player:AddComponent("ngl_pathfollower")
+		end
+
+		pathfinder = PATHFINDER == "klei's" and player.components.ngl_pathfinder or player.components.ngl_fusedpathfinder
+
+		-- override for island adventure mod
+		if TheWorld and TheWorld:HasTag("island") then --or if TheWorld and (TheWorld:HasTag("island") or TheWorld:HasTag("volcano"))
+			pathfinder = player.components.ngl_pathfinder
+		end
+
+		-- pathfinder for main path search
+		player.components.ngl_pathfollower:SetPathfinder(pathfinder)
+		-- pathfinder for sub path search (dymanic path adjustment to handle the obstacles out of the loading range)
+		-- player.components.ngl_pathfollower.subsearch_pathfinder = pathfinder
+		-- there's some problems to use LUA pathfinder in subpath searching when the tiles of startpos and endpos is adjacent(see FindNearbyWalkableCenterPoint)
+
+		player.components.ngl_pathfollower.allow_pathfinding_fog_of_war = ALLOW_PATHFIND_FOGOFWAR
+		
+		-- for SimTimeScale Tweak:
+		if type(TIMESCALE_TWEAK_MULTI) == "number" then
+			player:ListenForEvent("ngl_startpathfollow", function() SetSimTimeScaleTweakEnabled(true) end)
+			player:ListenForEvent("ngl_stoppathfollow", function() SetSimTimeScaleTweakEnabled(false) end)
+		end
+	end
 end)
 
 ----------------TRIGGER AND HALT----------------------
 -- including the tweak of mapscreen, minimapwidget, smallmap, playercontroller
 
 -- TRIGGER
-
 modimport("scripts/postInits/mapscreenPostInit.lua")
 
 AddSimPostInit(function ()
@@ -83,11 +117,11 @@ AddSimPostInit(function ()
 	pcall(function() is_minimap_enable = (require("widgets/minimapwidget") ~= nil) end)
 	pcall(function() is_smallmap_enable = (require("widgets/smallmap") ~= nil) end)
 
-	if is_minimap_enable and GetModConfigData("TWEAK_MINIMAP_ENABLE") then 
+	if is_minimap_enable then
 		modimport("scripts/postInits/minimapwidgetPostInit.lua")
 	end
 
-	if is_smallmap_enable and GetModConfigData("TWEAK_SMALLMAP_ENABLE") then 
+	if is_smallmap_enable then 
 		modimport("scripts/postInits/smallmapPostInit.lua")
 	end
 end)
@@ -95,11 +129,10 @@ end)
 -- HALT
 modimport("scripts/postInits/playercontrollerPostInit.lua")
 
-
 -------------------------MISC-----------------------
 --it may cause many problems
 --i just want to see how is it if all the creatures can detour
---and now you can get it in mod "Don't Blocked Together"
+--and now you can get this feature in "Don't Blocked Together" mod
 local bypass_enabled = GetModConfigData("TWEAK_DETOUR_ENABLE")
 -- 2023.8.9:
 --always enabled, i have fixed it and it seems work well these days

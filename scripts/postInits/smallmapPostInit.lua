@@ -123,13 +123,28 @@ local function SmallMap_SetZoom(self, zoom)
 	self.memory.zoom = nil--// handle redraw
 end
 
+-- fix the crash about MiniMap C side component in single shard world(no caves)
+-- copied from lw (Dont Starve Alone Mod -- modmain/misc.lua)
+local function AddEngineSideCrashPatch(self)
+	local old_UpdateTexture = self.UpdateTexture
+	self.UpdateTexture = function(self)
+		if GetTick() <= 4 then
+			self.inst:DoTaskInTime(.5, function()
+				local w, h = self.img:GetSize()
+				old_UpdateTexture(self)
+				self.img:SetSize(w, h)
+			end)
+		else
+			return old_UpdateTexture(self)
+		end
+	end
+end
 
 --------------------------------------------------------------------
 
 
------------------------------ADD AUTOWALK--------------------------
-function AddAutoMoveForSmallMap(self)
-	-------------------------MOUSECLICK TRIGGER-----------------------
+-----------------------------ADD AUTOWALK TRIGGER--------------------------
+local function AddAutoMoveTriggerForSmallMap(self)
 	local old_OnControl = self.OnControl
 	self.OnControl = function (self, control, down)
 		local is_trigger_clicked, is_additional_travel = CheckClickedAndGetTravelType(control)
@@ -147,7 +162,9 @@ function AddAutoMoveForSmallMap(self)
 			return	old_OnControl and old_OnControl(self, control, down)
 		end
 	end
+end
 
+local function AddPathWidgetsForSmallMap(self, pathline_enabled, desticon_enabled)
 	-------------------------PAINT WIDGET-----------------------
 	self.paintWidget = self.img:AddChild(Widget("PaintWidget"))
 	-- lw newbee 
@@ -164,7 +181,7 @@ function AddAutoMoveForSmallMap(self)
 	end
 	------------------------SHOW PATH LINES-----------------------------
 	-- add pathline widget 
-	if GetModConfigData("PATHLINE_ENABLE") then
+	if pathline_enabled then
 		self.pathLineGroup = self.paintWidget:AddChild(PathLineGroup(self,line_xml,line_texName))
 		self.pathLineGroup:SetLineTint(1,1,1,0.8)
 		self.pathLineGroup:SetLineDefaultHeight(30)
@@ -172,14 +189,21 @@ function AddAutoMoveForSmallMap(self)
 		
 	-----------------------SHOW DEST ICON------------------------------
 	-- to hide the icon outside the minimap area, i add it as pathlinegroup's child
-	if GetModConfigData("ICON_ENABLE") then
+	if desticon_enabled then
 		self.destIconImage = self.paintWidget:AddChild(DestIcon(self,icon_xml,icon_texName))
 		self.destIconImage:SetDefaultScale(0.25)
 	end
 end
+
+------------------------------APPLY-------------------------------
+local maps_trigger_str = GetModConfigData("MAPS_TRIGGER")
+local minimap_trigger_enabled = (maps_trigger_str == "Both") or (maps_trigger_str == "MiniMap")
+
+local ui_settings_str = GetModConfigData("UI_DISPLAY")
+local pathline_enabled = ui_settings_str == "Both" or ui_settings_str == "PathLine"
+local desticon_enabled = ui_settings_str == "Both" or ui_settings_str == "DestIcon"
 AddClassPostConstruct("widgets/smallmap",
 	function(self)
-		
 		self.GetCursorPosition = SmallMap_GetCursorPosition
 		self.GetWorldPositionAtCursor = SmallMap_GetWorldPositionAtCursor
 		self.WorldPosToScreenPos = SmallMap_WorldPosToScreenPos
@@ -187,7 +211,11 @@ AddClassPostConstruct("widgets/smallmap",
 		
 		self:SetZoom(self.data.zoomlevel)-- to get self.uvscale during init
 		
-		AddAutoMoveForSmallMap(self)
+		if minimap_trigger_enabled then
+			AddAutoMoveTriggerForSmallMap(self)
+		end
+		AddPathWidgetsForSmallMap(self, pathline_enabled, desticon_enabled)
+		AddEngineSideCrashPatch(self)
 		--AddResetKeyForSmallmap(self)--it has the reset button already,should i add this ?
 end)
 

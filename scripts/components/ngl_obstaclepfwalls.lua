@@ -1,7 +1,6 @@
-
 local function OnIsPathFindingDirty_ClientOnly(inst)
     local self = inst.components.ngl_obstaclepfwalls
-    if self.ispathfinding == true then
+    if self.ispathfinding then
         self:ApplyPathfinderWalls()
     elseif self.pftable ~= nil and next(self.pftable) then
         self:RemovePathfinderWalls()
@@ -9,21 +8,24 @@ local function OnIsPathFindingDirty_ClientOnly(inst)
     --print("OnIsPathFindingDirty", inst)
 end
 
-local function UpdatePathfindState_ClientOnly(inst)
+local function UpdatePathfindState_ClientOnly(inst, boat)
+    if inst.Transform == nil or inst.Physics == nil then return end
     local self = inst.components.ngl_obstaclepfwalls
-    local is_on_pathfinding_platform = inst.Transform and inst:IsOnValidGround() and inst:GetCurrentPlatform() == nil
+    local is_water_obstacle = inst.components.waterphysics ~= nil or inst:HasTag("boat")
+    local is_on_ground = inst:IsOnValidGround()
+    local is_on_valid_tile = is_water_obstacle ~= is_on_ground
 	local is_active = inst.Physics:IsActive()   --physics active changed
-	local can_collide_player = self:CanCollideWith(COLLISION.CHARACTERS) --physics collision changed
-	local cur_ispathfinding = is_on_pathfinding_platform and is_active and can_collide_player or false
-    local cur_rad = inst.Physics:GetRadius() or 0
+	local can_collide_player = inst ~= boat and self:CanCollideWith(is_water_obstacle and boat ~= nil and COLLISION.OBSTACLES or COLLISION.CHARACTERS) --physics collision changed
+	local cur_ispathfinding = is_on_valid_tile and is_active and can_collide_player or false
+    local cur_rad = (inst.Physics:GetRadius() or 0) + (boat and boat.Physics:GetRadius() or 0)
     local cur_pos = inst:GetPosition() or Vector3(0,0,0)
-	local pos_changed = cur_pos ~= self.last_pos
-    local rad_changed = cur_rad ~= self.last_rad --physics radius changed
+	local pos_changed = cur_pos ~= self.cur_pos
+    local rad_changed = cur_rad ~= self.cur_rad --physics radius changed
     
     if cur_ispathfinding ~= self.ispathfinding or (cur_ispathfinding and (rad_changed or pos_changed)) then
         self.ispathfinding = cur_ispathfinding
-        self.last_pos = cur_pos
-        self.last_rad = cur_rad
+        self.cur_pos = cur_pos
+        self.cur_rad = cur_rad
         OnIsPathFindingDirty_ClientOnly(inst)
     end
 end
@@ -34,7 +36,7 @@ local function InitializePathFinding_ClientOnly(inst, self)
     --inst:ListenForEvent("ngl_update_pathfinderwalls", function() UpdatePathfindState_ClientOnly(inst) end, TheWorld)
     inst:ListenForEvent("ngl_pathfinding_change", self.on_world_pf_change , TheWorld)
     self.listening_pfwalls_change = true
-    self.on_world_pf_change(TheWorld,{enabled = TheWorld.ngl_ispathfinding})
+    self.on_world_pf_change(TheWorld, TheWorld.ngl_pathfinding_settings)
 end
 
 -- CLIENT_ONLY VERSION OF PFWALLS COMPONENT, SEE workshop-2866542075 "components/ngl_pfwalls.lua" for server version
@@ -45,15 +47,15 @@ local PFWalls = Class(function(self, inst)
     self.inst = inst
     self.pftable = nil
     self.ispathfinding = false
-    self.last_pos = nil
-    self.last_rad = nil
+    self.cur_pos = nil
+    self.cur_rad = nil
 
     -- the prefabs that has registered pathfinding cell in game, eg: walls, support_pillar, nightmarerock
     self.always_apply_pathfinding = false
 
     self.on_world_pf_change = function(world, data)
         if self.always_apply_pathfinding or (data and data.enabled) then -- temporary apply pathfinding cells and put into shared walls
-            UpdatePathfindState_ClientOnly(inst)
+            UpdatePathfindState_ClientOnly(inst, data and data.boat)
         elseif self.pftable ~= nil and next(self.pftable) then -- autowalking is over , cancel the temporary record(if always_apply_pathfinding = false)
             self:RemovePathfinderWalls()
             self.ispathfinding = false
@@ -72,9 +74,7 @@ end)
 
 -- global variable
 NGL_PFWALLS_CLIENTONLY_SHARED = {}
-
--- BitAND by 老王
--- 位运算，按位与
+-- by lw
 local function BitAND(a, b)
     local p, c = 1, 0
     while a > 0 and b > 0 do
@@ -86,6 +86,7 @@ local function BitAND(a, b)
     end
     return c
 end
+
 -- a function return can player collide with other
 -- for example: if we can cross the ocean and land ,then it return false with COLLISION.LAND_OCEAN_LIMITS
 function PFWalls:CanCollideWith(COLLISION_TYPE)
@@ -112,7 +113,7 @@ end
 PFWALL_CLIENTONLY_DEBUG_MODE = false
 local function SpawnDebugWall(x,y,z)
     local wall = SpawnPrefab("wall_stone_2_item_placer")
-    wall:AddTag("ignorewalkableplatforms") -- cant be carried by boat
+    wall:AddTag("ignorewalkableplatforms") 
     wall:RemoveTag("CLASSIFIED")
     wall.Transform:SetPosition(x,y,z)
     wall.AnimState:OverrideMultColour(0.8,0,0,.4) -- in red
@@ -127,7 +128,7 @@ end
 function PFWalls:SpawnAllDebugWalls()
 	local function spawnwall(x,y,z)
 		local wall = SpawnPrefab("wall_stone_2_item_placer")
-		wall:AddTag("ignorewalkableplatforms") -- cant be carried by boat
+		wall:AddTag("ignorewalkableplatforms") 
 		wall.Transform:SetPosition(x, y, z)
 		wall.AnimState:OverrideMultColour(0.8,0,0,.4) -- in yellow
 		return wall
@@ -205,7 +206,7 @@ function PFWalls:ApplyPathfinderWalls()
     -- we should normalize the coord before Pathfinder:AddWall
     local normalized_x = math.floor(x) + .5
     local normalized_z = math.floor(z) + .5
-    local rad = self.inst.Physics:GetRadius() or 0
+    local rad = self.cur_rad or 0
     local offset = math.ceil(rad) + 1 -- must be an int
     for dx = -(offset), (offset) do
         local x1 = normalized_x + dx

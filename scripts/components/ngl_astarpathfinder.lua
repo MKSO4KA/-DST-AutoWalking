@@ -1,7 +1,5 @@
 --local AStarUtil = require("utils/astar_util") -- AStar
 local AStarUtil = require("utils/bidir_astar_util") -- Bi-directional AStar
-require("utils/step_util")
-
 -- the status of pathsearch
 local STATUS_CALCULATING = 0
 local STATUS_FOUNDPATH = 1
@@ -25,12 +23,18 @@ local Pathfinder = Class(function(self, inst)
 	self.process_maxtime = 2 --sec
 end)
 
-function Pathfinder:SubmitSearch(startPos, endPos, pathcaps, groundcaps)
+-- 有效的路径，至少要有两个step，起点和终点
+local function IsValidPath(path)
+	return path ~= nil and path.steps and #path.steps >= 2
+end
+
+function Pathfinder:SubmitSearch(startPos, endPos, pathcaps, groundcaps, boatRadius)
 	self:KillSearch()
 	self.search_data = AStarUtil.requestSearch(startPos,
 											endPos, 
 											pathcaps,
-											groundcaps
+											groundcaps,
+											boatRadius
 										  ) 
 	self.search_status = STATUS_CALCULATING	-- Initialize as in calculating
 	self.search_start_time = GetTime()
@@ -94,23 +98,23 @@ function Pathfinder:SetMaxTime(time)
 	self.process_maxtime = time
 end
 
-function Pathfinder:IsClear(p1, p2, pathcaps)
+function Pathfinder:IsClear(p1, p2, pathcaps, boatRadius)
 	if AStarUtil.CheckWalkableFromPoint then
-		return AStarUtil.CheckWalkableFromPoint(Vector3(p1.x, 0, p1.z), Vector3(p2.x, 0, p2.z), pathcaps)
+		return AStarUtil.CheckWalkableFromPoint(Vector3(p1.x, 0, p1.z), Vector3(p2.x, 0, p2.z), pathcaps, boatRadius)
 	end
 end
 
-function Pathfinder:TestClear(pathcaps)
+function Pathfinder:TestClear(pathcaps, boatRadius)
 	if ThePlayer and TheInput then
 		local p1 = ThePlayer:GetPosition()
 		local p2 = TheInput:GetWorldPosition()
-		local result, reason = self:IsClear(p1, p2, pathcaps)
+		local result, reason = self:IsClear(p1, p2, pathcaps, boatRadius)
 		print(result and "hasLOS" or "noLOS", reason or nil)
 	end
 end
 
-function Pathfinder:CalcGroundSpeedMulti(point, groundcaps)
-	return AStarUtil.calcGroundSpeedMulti and AStarUtil.calcGroundSpeedMulti(point, groundcaps)
+function Pathfinder:IsFasterAtPoint(point, groundcaps)
+	return AStarUtil.CalcGroundSpeedMulti and AStarUtil.CalcGroundSpeedMulti(point, groundcaps) == ASTAR_COSTMULTI.GROUND_SPEED.SMALL
 end
 
 function Pathfinder:IsPassableAtPoint(point, pathcaps)

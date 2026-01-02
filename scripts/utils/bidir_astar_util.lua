@@ -16,36 +16,16 @@ end
 ----- Variables -----
 ---------------------
 
--- global vars so they can be used in other files
--- define of groundtile speed multiplier
 ASTAR_SPEED_FASTER = 1
 ASTAR_SPEED_NORMAL = 0
 ASTAR_SPEED_SLOWER = -1
 
--- cost multi of groundtile
-ASTAR_COSTMULTI_FASTER = 0.5 --0.5
-ASTAR_COSTMULTI_NORMAL = 1
-ASTAR_COSTMULTI_SLOWER = 2  --2
+ASTAR_COSTMULTI = {
+	GROUND_SPEED = {SMALL = -0.5, NORMAL = 0, LARGE = 1}, 
+	ANGLE_CHANGE = {NORMAL = 0.5, LARGE = 1},
+}
 
--- cost multi of direction change
-local ASTAR_COSTMULTI_DIRECTION = 2  --Deprecated
-
--- cost multi of angle difference
-local ASTAR_COSTMULTI_ANGLE = 1.5  -- 1 ~ 2,  FASTER (0.5) < NORMAL (1) <= FASTER*ANGLE (0.5*2)
-
--- 栅格/采样节点的距离间隔
--- Distance between pathfinding nodes
-local PATH_NODE_DIST = 4
-local PATH_NODE_DIST_SQ = PATH_NODE_DIST * PATH_NODE_DIST
-
--- 最大的工作量（即一共访问的点数量），达到后强制停止寻路
--- pathfinding will forcestop when it reach the max work amount
-local PATH_MAX_WORK = 15000
-
----------------------
--- Local Functions --
----------------------
-
+------------------------- CONVERT FUNCTIONS ------------------------------
 -- 返回一个基于玩家位置为原点的2D相对位置坐标，单位长度为PATH_NODE_DIST
 -- Makes a 2int coordinate
 -- @param x : x val of coordinate
@@ -67,11 +47,11 @@ end
 -- @param origin : The origin of the coordinate system
 -- @param coord  : coordinate to convert
 -- @return       : the Vector3 in world space corresponding to the given coordinate
-local coordToPoint = function(origin, coord)
+local coordToPoint = function(origin, coord, node_dist)
 	return Vector3	(
-						origin.x + (coord.x * PATH_NODE_DIST),
+						origin.x + (coord.x * node_dist),
 						0,
-						origin.z + (coord.y * PATH_NODE_DIST)
+						origin.z + (coord.y * node_dist)
 					)
 end
 
@@ -86,20 +66,19 @@ end
 local stepToPoint = function(step)
 	return Vector3(step.x, step.y, step.z)
 end
-
+-------------------------------------------------------------------------
 -- see https://www.gamedev.net/reference/articles/article2003.asp -- chapter"Notes on Implementation" -- Point 7
 
-------------------------
--- OpenList Functions --
-------------------------
+
 local BinaryHeap = require("utils/binaryheap")
 
+----------------------------- COST FUNCTIONS -------------------------------
 --- COST FUNCTIONS
 -- 计算损失值，哈夫曼距离主要用于4方向，对角线距离用于8方向
 -- calc the cost of G scores and F scores , F = G + H
 -- when we consider four directions ,better to use Manhattan distance
 -- when we consider eight directions ,better to use Diagnol distance
-local calcCost = function(p1, p2)
+local CalcDistCost = function(p1, p2)
 	-- Manhattan distance
 	--return math.abs(p1.x - p2.x) + math.abs(p1.z - p2.z)
 	
@@ -110,12 +89,11 @@ local calcCost = function(p1, p2)
 	return dx + dz - 0.5 * min_xz  --0.5 means is approximately equal to (2- sqrt(2))
 end
 
-
 -- 计算地面速度乘数，通过减小在卵石路上的G值可以优先考虑卵石路上的点，达到跟随卵石路的效果
 -- 同样通过增大蜘蛛网上的G值可以尽量避免走到蜘蛛网上，（Webber则是加速）
-local calcGroundSpeedMulti = function(point, groundcaps)
+local CalcGroundSpeedMulti = function(point, groundcaps)
     --NO GROUNDCAPS SETTINGS
-    if groundcaps == nil then return ASTAR_COSTMULTI_NORMAL end
+    if groundcaps == nil then return ASTAR_COSTMULTI.GROUND_SPEED.NORMAL end
 
 	--FLOOD (island adventure Mod)
 	-- if groundcaps.speed_on_flood ~= nil then
@@ -123,9 +101,9 @@ local calcGroundSpeedMulti = function(point, groundcaps)
 	-- 							TheWorld.components.flooding:OnFlood(point.x, 0, point.z)
 	-- 	if is_onflood then
     --         if groundcaps.speed_on_flood < ASTAR_SPEED_NORMAL then
-    --             return ASTAR_COSTMULTI_SLOWER
+    --             return ASTAR_COSTMULTI.GROUND_SPEED.LARGE
     --         elseif groundcaps.speed_on_flood > ASTAR_SPEED_NORMAL then
-    --             return ASTAR_COSTMULTI_FASTER
+    --             return ASTAR_COSTMULTI.GROUND_SPEED.SMALL
     --         end
 	-- 	end
 	-- end
@@ -136,9 +114,9 @@ local calcGroundSpeedMulti = function(point, groundcaps)
         -- should walk around the spidernet evenif it's on road or faster tiles
         if is_oncreep then
             if groundcaps.speed_on_creep < ASTAR_SPEED_NORMAL then
-                return ASTAR_COSTMULTI_SLOWER
+                return ASTAR_COSTMULTI.GROUND_SPEED.LARGE
             elseif groundcaps.speed_on_creep > ASTAR_SPEED_NORMAL then
-                return ASTAR_COSTMULTI_FASTER
+                return ASTAR_COSTMULTI.GROUND_SPEED.SMALL
             end
         end
     end
@@ -152,38 +130,46 @@ local calcGroundSpeedMulti = function(point, groundcaps)
         if is_onroad then
             -- nobody will walk slower on road but just in case
             if groundcaps.speed_on_road < ASTAR_SPEED_NORMAL then
-                return ASTAR_COSTMULTI_SLOWER
+                return ASTAR_COSTMULTI.GROUND_SPEED.LARGE
             elseif groundcaps.speed_on_road > ASTAR_SPEED_NORMAL then
-                return ASTAR_COSTMULTI_FASTER
+                return ASTAR_COSTMULTI.GROUND_SPEED.SMALL
             end
         end
     end
     --FASTER TILES
     if groundcaps.faster_on_tiles ~= nil then
         if groundcaps.faster_on_tiles[tostring(current_ground_tile)] then
-            return ASTAR_COSTMULTI_FASTER
+            return ASTAR_COSTMULTI.GROUND_SPEED.SMALL
         end
     end
-    return ASTAR_COSTMULTI_NORMAL
+    return ASTAR_COSTMULTI.GROUND_SPEED.NORMAL
 end
-
--- 计算方向变化乘数，方向变化的点损失值更大，从而达到平滑路径的效果
--- less cost of G scores in same direction and more cost in different direction 
--- it's another method to smooth the path
-local calcDirectionMulti = function(nextCoord_direct, currentCoord_direct)
-    --return 1
-	return (1 * (nextCoord_direct == currentCoord_direct and 1 or ASTAR_COSTMULTI_DIRECTION))
-end
-
 
 -- 计算角度变化乘数, 与上类似，但是按角度分段
-local calcAngleMulti = function(nextCoord_direct, currentCoord_direct)
+local CalcAngleMulti = function(nextCoord_direct, currentCoord_direct)
+	if nextCoord_direct == nil or currentCoord_direct == nil then return ASTAR_COSTMULTI.ANGLE_CHANGE.NORMAL end
+
 	local nextCoord_angle = VecUtil_GetAngleInRads(nextCoord_direct.x, nextCoord_direct.z)
-	local toDest_degree = VecUtil_GetAngleInRads(currentCoord_direct.x, currentCoord_direct.z)
-	--DebugPrint(1+ (ASTAR_COSTMULTI_ANGLE-1) * math.abs(nextCoord_angle - toDest_degree)/(2*PI))
-	return 1+ (ASTAR_COSTMULTI_ANGLE-1) * math.abs(nextCoord_angle - toDest_degree)/(2*PI)
+	local currCoord_angle = VecUtil_GetAngleInRads(currentCoord_direct.x, currentCoord_direct.z)
+	local diff_angle = math.abs(nextCoord_angle - currCoord_angle)
+	if diff_angle > PI then
+		diff_angle = PI*2 - diff_angle
+	end
+	return Lerp(ASTAR_COSTMULTI.ANGLE_CHANGE.NORMAL, ASTAR_COSTMULTI.ANGLE_CHANGE.LARGE, diff_angle/PI)
 end
 
+local CalcTotalMulti = function(curr_pt, next_pt, old_dir, new_dir, groundcaps, boatRadius)
+	local groundSpeedMulti = ASTAR_COSTMULTI.GROUND_SPEED.NORMAL
+	local angleChangeMulti = ASTAR_COSTMULTI.ANGLE_CHANGE.NORMAL
+	if true then
+		groundSpeedMulti = CalcGroundSpeedMulti(next_pt, groundcaps)
+	end
+	if groundSpeedMulti == ASTAR_COSTMULTI.GROUND_SPEED.SMALL then  -- 
+		angleChangeMulti = CalcAngleMulti(old_dir, new_dir)
+	end
+	return 1 + groundSpeedMulti + angleChangeMulti
+end
+------------------------------- WALKABLE CHECK FUNCTIONS----------------------------------
 
 -- 陆地和浅海交界处，浅海地皮会伸出 1/4区域 的陆地，overhang区因为算浅海地皮，和陆地没有LOS
 -- overhang area means the extend area that near the shallow ocean, it's belong as shallow ocean tile
@@ -238,12 +224,12 @@ local function IsWalkablePoint(point, pathcaps)
 	return true
 end
 
--- 两点之间采样检测连通性 FIXME: diagonal direction walls can't be checked normally 
+-- 两点之间采样检测连通性
 -- it's so expensive to check tiles walkable between points with long distance
 local function SamplingCheckWalkable(pos, target_pos, pathcaps, sampling_dist)
 	local vec, len = (target_pos - pos):GetNormalizedAndLength()
 	local pathcaps = pathcaps or {}
-	local sampling_dist = sampling_dist or (TILE_SCALE / 5)
+	local sampling_dist = sampling_dist or 1
 	if len > sampling_dist then -- the points dist smaller than sampling_dist, just skip
 		local i = sampling_dist
 		while(i < len) do
@@ -259,7 +245,7 @@ end
 
 -- 检测两点连通性， 先用C接口检测，再手动检测某些可能连通的情况
 -- check the LOS and potiental LOS
-local function CheckWalkableFromPoint(pos, target_pos, pathcaps, without_check_potiental_walkable)
+local function CheckWalkableFromPoint(pos, target_pos, pathcaps, boat_radius, without_check_potiental_walkable)
 	local pathcaps = pathcaps or {ignorewalls = false,  ignorecreep = false, ignoreLand = false, allowocean = false, }
 	-- precheck
 	if pos == target_pos then
@@ -277,6 +263,44 @@ local function CheckWalkableFromPoint(pos, target_pos, pathcaps, without_check_p
 	-- 		return false, "flood blocked"
 	-- 	end
 	-- end
+
+	--------------------------------------------
+	--[[ check Collision with Land if we are moving a boat ]]
+	--------------------------------------------
+	-- LOS check if has land blocked on two sides of boat trajectory
+	if type(boat_radius) == "number" then
+		local vec = (target_pos - pos):GetNormalized()
+		local normal_vecs = {Vector3(-vec.z, 0, vec.x), Vector3(vec.z, 0, -vec.x)} --法线向量
+		for k, v in ipairs(normal_vecs) do
+			local start_pos, end_pos = pos + v * boat_radius, target_pos + v * boat_radius
+			if not TheWorld.Pathfinder:IsClear(
+											start_pos.x, 0, start_pos.z,
+											end_pos.x, 0, end_pos.z, 
+											{allowocean = true, ignoreLand = true, ignorewalls = true, ignorecreep = true} -- only check tiles connection
+										) then
+				return false, "land blocks boat trajectory"
+			end
+		end
+	end
+	
+	--------------------------------------------
+	--[[ check Distance from Lava if we are in a valcano world. eg:Island Advent Mod ]]
+	--------------------------------------------
+	if WORLD_TILES and WORLD_TILES.VOLCANO_LAVA then
+		local dist = 15
+		local vec = (target_pos - pos):GetNormalized()
+		local normal_vecs = {Vector3(-vec.z, 0, vec.x), Vector3(vec.z, 0, -vec.x)} --法线向量
+		for k, v in ipairs(normal_vecs) do
+			local start_pos, end_pos = pos + v * dist, target_pos + v * dist
+			if not TheWorld.Pathfinder:IsClear(
+											start_pos.x, 0, start_pos.z,
+											end_pos.x, 0, end_pos.z, 
+											{allowocean = false, ignoreLand = false, ignorewalls = true, ignorecreep = true} -- only check tiles connection
+										) then
+				return false, "too close to the lava"
+			end
+		end
+	end
 
 	--------------------------------------------
 	--[[ C side interface to check LOS ]]
@@ -329,7 +353,6 @@ local function CheckWalkableFromPoint(pos, target_pos, pathcaps, without_check_p
 	--------------------------------------------
 	--[[ check walkable at points]]
 	--------------------------------------------
-
 	local is_points_both_walkable = IsWalkablePoint(pos, pathcaps) and IsWalkablePoint(target_pos, pathcaps)
 	if not is_points_both_walkable then
 		return false, "not both walkable points"
@@ -390,6 +413,7 @@ local function CheckWalkableFromPoint(pos, target_pos, pathcaps, without_check_p
 	return true
 end
 
+------------------------------------- PATH OPERATE FUNCTIONS ------------------------------------------
 -- 构建路径，从末尾节点向前遍历camefrom链表，其中只有方向不同的点才会插入到路径中，可以简化路径
 -- Constructs a path from a finishedPath
 -- @param search 	   : The search you request, which contains the params of pathfinding 
@@ -412,9 +436,9 @@ local makePath = function(search, finalCoord)
 
 	local init_steps = #(path.steps) + 1 -- the position that start to insert into
 	for direction, subdata in pairs(search.data) do
-		local reversed = direction == "end_to_start" -- keep the same with this : search.data = {start_to_end= {}, end_to_start = {}}
-		local finalPoint = coordToPoint(origin, finalCoord)
-		--local lastDirection = finalPoint - coordToPoint(origin, subdata.endCoord)
+		local reversed = direction == "end_to_start" -- keep the sync with this : search.data = {start_to_end= {}, end_to_start = {}}
+		local finalPoint = coordToPoint(origin, finalCoord, search.node_dist)
+		--local lastDirection = finalPoint - coordToPoint(origin, subdata.endCoord, search.node_dist)
 		local lastDirection = nil
 		local currentCoord = finalCoord
 		local lastCoord = currentCoord
@@ -422,7 +446,7 @@ local makePath = function(search, finalCoord)
 			local currentDirection = subdata.direction_so_far[currentCoord.x] and subdata.direction_so_far[currentCoord.x][currentCoord.y] or nil
 			-- In order to simplify the path, only the steps with different direction will be added
 			if currentDirection ~= lastDirection then
-				local worldPoint = coordToPoint(origin, currentCoord)
+				local worldPoint = coordToPoint(origin, currentCoord, search.node_dist)
 				--local point = Vector3(worldVec:Get()) It's Wrong!
 				-- Notice: the step is a table of {x,y,z}, not Vector3
 				-- to keep the same with klei's pathfinding result format
@@ -441,6 +465,16 @@ local makePath = function(search, finalCoord)
 
 	table.insert(path.steps, pointToStep(search.original_endPos))
 
+	-- remove the search.startPos and search.endPos if they has LOS
+	local stepnum = #path.steps
+	if stepnum - 2 > 0 and CheckWalkableFromPoint(stepToPoint(path.steps[stepnum]), stepToPoint(path.steps[stepnum-2]), search.pathcaps, search.boatRadius) then
+		table.remove(path.steps, stepnum-1)
+		stepnum = stepnum - 1
+	end
+	if stepnum >= 3 and CheckWalkableFromPoint(stepToPoint(path.steps[1]), stepToPoint(path.steps[3]), search.pathcaps, search.boatRadius) then
+		table.remove(path.steps, 2)
+	end
+
 	return path
 end
 
@@ -448,21 +482,18 @@ end
 -- 另一种平滑路径的方法，在构建完路径后跑一遍，每三个点两头hasLos，则中间点为非必要点
 -- a method to smooth the path via run through the path and check LOS between points
 -- remove the unneccessary points which has LOS ,except the points on the road
-local smoothPath = function(search)
+local smoothPath = function(path, pathcaps, groundcaps, boatRadius)
 	-- smooth path part
 	-- ie: {0,0}, {0,2}, {3,2} -> {0,0}, {3,2} (given LOS)
-	
-	
-	local path = search.path
 	local index = 2
-	local check_pathcaps = shallowcopy(search.pathcaps)
+	local check_pathcaps = shallowcopy(pathcaps)
 	-- reset the ignorecreep = false , to test whether the point can help me avoid the creep
-	if search.groundcaps.speed_on_creep and search.groundcaps.speed_on_creep < 0 then
+	if groundcaps and groundcaps.speed_on_creep and groundcaps.speed_on_creep < 0 then
 		check_pathcaps.ignorecreep = false
 	end
 	---- DEPRECATED, see bypass prefab defs "network_flood"
 	-- -- reset the ignoreflood = false , to test whether the point can help me avoid the flood
-	-- if search.groundcaps.speed_on_flood and search.groundcaps.speed_on_flood < 0 then
+	-- if groundcaps.speed_on_flood and groundcaps.speed_on_flood < 0 then
 	-- 	check_pathcaps.ignoreflood = false
 	-- end
 
@@ -474,11 +505,10 @@ local smoothPath = function(search)
 		local cur = path.steps[index]
 
 		local prePoint, curPoint, postPoint = stepToPoint(pre), stepToPoint(cur), stepToPoint(post)
-		local is_on_speedup_turf = calcGroundSpeedMulti(curPoint, search.groundcaps) < ASTAR_COSTMULTI_NORMAL --ASTAR_COSTMULTI_FASTER
-
-        -- dont remove the points that on speedup_turf even if they're have LOS with previous point
-		if CheckWalkableFromPoint(prePoint, postPoint, check_pathcaps) and
-			 (not is_on_speedup_turf ) then -- Has LOS
+		-- dont remove the points that on speedup_turf even if they're have LOS with previous point
+		if CheckWalkableFromPoint(prePoint, postPoint, check_pathcaps, boatRadius) and -- Has LOS
+			-- (boatRadius == nil or CalcLandDistMulti(prePoint, postPoint, boatRadius) ~= ASTAR_COSTMULTI.LAND_DIST.LARGE) and
+			CalcGroundSpeedMulti(curPoint, groundcaps) ~= ASTAR_COSTMULTI.GROUND_SPEED.SMALL then -- not on faster tiles 
 			table.remove(path.steps, index)
 		else -- No LOS
 			index = index + 1
@@ -530,9 +560,6 @@ local function FindNearbyWalkableCenterPoint(point, pathcaps, check_los)
 	return resultCenterPoint or nil
 end
 
-------------------------
--- External Functions --
-------------------------
 
 -- 请求一个搜索，参数为起点，终点，路径设置（ignorecreep = true 指忽视即可以穿过蜘蛛网）和特殊地面设置（卵石路上和蛛网的速度变化，false则不考虑）
 -- 搜索中包含了路径的信息，和用于寻路的一些初始变量
@@ -542,7 +569,7 @@ end
 -- @param groundcaps: (Optional) whether movement speed get changed in road /in creep (spider-web)
 -- @return         : A partial path object
 --                 .path : If path is finished via LOS, this will be populated, otherwise nil
-local requestSearch = function(startPos, endPos, pathcaps, groundcaps)
+local requestSearch = function(startPos, endPos, pathcaps, groundcaps, boatRadius)
 	
 	----------------------
 	-- Store parameters --
@@ -554,10 +581,14 @@ local requestSearch = function(startPos, endPos, pathcaps, groundcaps)
 	search.pathcaps.player = true
 
 	-- better to set it in pathfollower
-	-- i have set the penalty factor for creep and flood in calcGroundSpeedMulti
+	-- i have set the penalty factor for creep and flood in CalcGroundSpeedMulti
 	search.pathcaps.ignorecreep = true
 	-- search.pathcaps.ignoreflood = true
 
+	-- should consider to leave the gap from the shore to avoid the collision if we have the boat
+	search.boatRadius = boatRadius
+	-- pathfinding with allowocean is 8 to avoid get too many passable points in openlist
+	search.node_dist = (search.pathcaps.allowocean and 2 or 1) * TILE_SCALE
 
 	---- handle the case that one of points is on the tile which pathfinding not allow, just early quit
 	--check obviously no way to avoid unnecessary resource waste
@@ -593,7 +624,10 @@ local requestSearch = function(startPos, endPos, pathcaps, groundcaps)
 	search.startPos = FindNearbyWalkableCenterPoint(startPos, pathcaps, true) or search.original_startPos
 	search.endPos   = FindNearbyWalkableCenterPoint(endPos, pathcaps) or search.original_endPos
 	search.startCoord = makeCoord(0,0)
-	search.endCoord = makeCoord(math.floor((search.endPos.x - search.startPos.x)/PATH_NODE_DIST),math.floor((search.endPos.z - search.startPos.z)/PATH_NODE_DIST))
+	search.endCoord = makeCoord(
+								math.floor((search.endPos.x - search.startPos.x) / search.node_dist),
+								math.floor((search.endPos.z - search.startPos.z) / search.node_dist)
+							)
 
 	-------------------------
 	-- Prepare Pathfinding --
@@ -674,12 +708,13 @@ local processSearch = function(search, timePerRound, maxTime)
 		--pathfinding finish
 		if finalCoord ~= nil then
 			DebugPrint("[A STAR PATHFINDER] : " .. "start generate path！")
-
-			-- make path with some smooth feature via only preserve the points with different direction
-			-- and we penalized the points which with change of direction (see function calcDirectionMulti)
 			search.path = makePath(search, finalCoord)
 
-			search.path = smoothPath(search)
+			-- FIX ME: the smooth part may delete the neccessary point to keep the dist from shore
+			-- if search.boatRadius == nil then
+				search.path = smoothPath(search.path, search.pathcaps, search.groundcaps, search.boatRadius)
+				DebugPrint("[A STAR PATHFINDER] : " .. "smoothed path！")
+			-- end
 
 			-- update info
 			search.endTime = os.clock() --[[GetTime() ]]
@@ -693,7 +728,7 @@ local processSearch = function(search, timePerRound, maxTime)
 			subdata.closedlist[subdata.currentCoord.x][subdata.currentCoord.y] = true
 
 			local currentCoord = subdata.currentCoord
-			local currentPoint = coordToPoint(origin, currentCoord)
+			local currentPoint = coordToPoint(origin, currentCoord, search.node_dist)
 
 			-- Candidate coordinates, 8 directions
 			local neighborCoordinates = {
@@ -709,26 +744,22 @@ local processSearch = function(search, timePerRound, maxTime)
 			-- Process Candidates
 			for _, coordinate in ipairs(neighborCoordinates) do -- only two direction actually, just for less redundant code
 				local nextCoord = coordinate
-				local nextPoint = coordToPoint(origin, nextCoord)
+				local nextPoint = coordToPoint(origin, nextCoord, search.node_dist)
 
 				if not (subdata.closedlist[nextCoord.x] and subdata.closedlist[nextCoord.x][nextCoord.y]) and -- not in closed list
-					CheckWalkableFromPoint(currentPoint, nextPoint, search.pathcaps) then	-- walkable between two points
+					CheckWalkableFromPoint(currentPoint, nextPoint, search.pathcaps, search.boatRadius) then	-- walkable between two points
 					-- Update G scores
 
 					-- walk on the road first and on the creep last
 					-- 					local is_onroad = search.groundcaps.speed_on_road and (RoadManager ~= nil and RoadManager:IsOnRoad(nextPoint.x, 0, nextPoint.z) or TheWorld.Map:GetTileAtPoint(nextPoint.x, 0, nextPoint.z) == WORLD_TILES.ROAD) or false
 					-- 					local is_oncreep = search.groundcaps.speed_on_creep and (TheWorld.GroundCreep:OnCreep(nextPoint.x, 0, nextPoint.z)) or false
 					-- 					local is_on_faster_tiles = search.groundcaps.faster_on_tiles and search.groundcaps.faster_on_tiles[tostring(TheWorld.Map:GetTileAtPoint(nextPoint.x, 0, nextPoint.z))]
-
+					local old_direction = subdata.direction_so_far[currentCoord.x][currentCoord.y]
 					local new_direction = (nextPoint - currentPoint):GetNormalized()
 
-					local cost = calcCost(currentPoint, nextPoint)
-					local groundSpeedMulti = calcGroundSpeedMulti(nextPoint, search.groundcaps)
-					if groundSpeedMulti < ASTAR_COSTMULTI_NORMAL then  -- ASTAR_COSTMULTI_FASTER
-						groundSpeedMulti = groundSpeedMulti * calcAngleMulti(new_direction, subdata.direction_so_far[currentCoord.x][currentCoord.y])
-					end
-
-					local new_cost = subdata.g_score_so_far[currentCoord.x][currentCoord.y] + cost * groundSpeedMulti
+					local cost = CalcDistCost(currentPoint, nextPoint)
+					local multi = CalcTotalMulti(currentPoint, nextPoint, old_direction, new_direction, search.groundcaps, search.boatRadius)
+					local new_cost = cost * multi + subdata.g_score_so_far[currentCoord.x][currentCoord.y]
 
 					subdata.g_score_so_far[nextCoord.x] = subdata.g_score_so_far[nextCoord.x] or {}
 					subdata.direction_so_far[nextCoord.x] = subdata.direction_so_far[nextCoord.x] or {}
@@ -737,7 +768,7 @@ local processSearch = function(search, timePerRound, maxTime)
 					if subdata.g_score_so_far[nextCoord.x][nextCoord.y] == nil or new_cost < subdata.g_score_so_far[nextCoord.x][nextCoord.y] then
 						subdata.g_score_so_far[nextCoord.x][nextCoord.y] = new_cost
 						subdata.direction_so_far[nextCoord.x][nextCoord.y] = new_direction
-						nextCoord.f_score = new_cost + calcCost(nextPoint, coordToPoint(origin, subdata.endCoord))
+						nextCoord.f_score = new_cost + CalcDistCost(nextPoint, coordToPoint(origin, subdata.endCoord, search.node_dist))
 						--DebugPrint("[A STAR PATHFINDER] : " .. "f: "..nextCoord.f_score)
 						if not subdata.openlist:contains(nextCoord) then
 							subdata.openlist:push(nextCoord)
@@ -766,7 +797,7 @@ local processSearch = function(search, timePerRound, maxTime)
 				--print(os.clock() - round_start_time)
 				return false	-- another try in next round
 			else
-				DebugPrint("[A STAR PATHFINDER] : " .. "forcestop because max tracked amount reached, we have tracked points:" .. search.totalWorkDone)
+				DebugPrint("[A STAR PATHFINDER] : " .. "forcestop because max process time reached, we have tracked points:" .. search.totalWorkDone .. " cost time:" .. time - search.startTime)
 				return true		-- too many tries, forcestop
 			end
 		end
@@ -791,5 +822,5 @@ return
 	-- extra functions for astarpathfinder
 	CheckWalkableFromPoint = CheckWalkableFromPoint,
 	IsWalkablePoint = IsWalkablePoint,
-	calcGroundSpeedMulti = calcGroundSpeedMulti,
+	CalcGroundSpeedMulti = CalcGroundSpeedMulti,
 }

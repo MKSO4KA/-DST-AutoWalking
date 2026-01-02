@@ -41,7 +41,7 @@ return {
 	-- with mine component: trap_starfish trap_teeth_maxwell
 	{
 		prefab_fn = function(inst) return inst:HasTag("trapdamage") or inst.prefab == "trap_teeth_maxwell"  end,
-	 	radius_fn = function(inst) return TUNING.STARFISH_TRAP_RADIUS  end,
+	 	radius_fn = function(inst) return TUNING.TRAP_TEETH_RADIUS  end,
 		enable_fn = function(inst) return inst:HasTag("mineactive") and not IgnoreMineTrigger(ThePlayer) end
 	},
 	-- with unevenground component: antlion_sinkhole eyeofterror_sinkhole daywalker_sinkhole bearger_sinkhole and more
@@ -64,16 +64,6 @@ return {
 		end,
 		enable_fn = function(inst) return IsUnevenGroundEnabled(inst) and not IgnoreCarefulWalkerSlowDown(ThePlayer) end
 	},
-	-- UM MOD
-	{		
-		prefab_fn = function(inst) return inst.prefab == "snowpile" end,
-		radius_fn = function(inst) return 2 end
-	},
-	-- -- ISLAND ADVANTURE MOD (FIXME: should register pathfinding walls with correct position offset, maybe should write a new component for it)
-	-- {	prefab_fn = function(inst) return inst.prefab and inst.prefab == "network_flood" end,
-	-- 	radius_fn = function(inst) return TILE_SCALE/2 end,
-	-- 	enable_fn = function(inst) return not IgnoreFloodSlowDown(ThePlayer) end
-	-- },
 	-- with miasmanager component: miasma_cloud (Theplayer : miasmawatcher)
 	{
 		prefab_fn = function(inst) return inst:HasTag("miasma") end,
@@ -90,7 +80,7 @@ return {
 		radius_fn = function(inst) return TUNING.TOADSTOOL_SPORECLOUD_RADIUS end
 	},
 
-	-- klaus's deer ice and fire magic
+	-- klaus's deer ice and fire magic spell cast
 	{
 		prefab_fn = function(inst) return inst:HasOneOfTags({"deer_ice_circle", "deer_fire_circle"}) end,
 		radius_fn = function(inst) return 3 end
@@ -114,15 +104,11 @@ return {
 
 	-- mobs
 	{
-		prefab_fn = function(inst) return inst.prefab == "um_pawn" end,
-		radius_fn = function(inst) return 7+2*WANDER_TOLERANCE end -- wander as fast speed
-	},
-	{
 		prefab_fn = function(inst) return inst:HasTag("dragonfly") end,
 		radius_fn = function(inst) return TUNING.DRAGONFLY_AGGRO_DIST end
 	},
 	{
-		prefab_fn = function(inst) return inst:HasTag("beefalo") end, -- beefalo
+		prefab_fn = function(inst) return inst:HasTag("beefalo") and not inst:HasTag("player") end, -- beefalo
 		radius_fn = function(inst) return TUNING.BEEFALO_TARGET_DIST + WANDER_TOLERANCE end,
 		enable_fn = function(inst) return inst:HasTag("scarytoprey") and not ThePlayer:HasTag("beefalo") end -- in mood and no equipped beefalo hat
 	},
@@ -143,6 +129,82 @@ return {
 		prefab_fn = function(inst) return inst.prefab == "walrus_camp" end,
 		radius_fn = function(inst) return 10 end,  -- AGGRO_SPAWN_PARTY_RADIUS in walrus_camp.lua
 		enable_fn = function(inst) return inst.Light and inst.Light:IsEnabled() end
+	},
+	{
+		prefab_fn = function(inst) return inst.prefab == "bishop" or inst.prefab == "bishop_nightmare" end,
+		radius_fn = function(inst) return TUNING.BISHOP_TARGET_DIST * (ThePlayer:HasTag("chessfriend") and 0.5 or 1) end, 
+	},
+	{
+		prefab_fn = function(inst) return inst.prefab == "gelblob" end, -- i hate you klei
+		radius_fn = function(inst) return 0.88 end,
+	},
+	{
+		prefab_fn = function(inst) return inst.prefab == "lunarthrall_plant" end,
+		radius_fn = function(inst) return 4 end,
+	},
+
+	-- ocean
+	{	-- keep distance to this guy to protect my boat
+		prefab_fn = function(inst) return inst.prefab == "cookiecutter" end,
+		radius_fn = function(inst) return TUNING.COOKIECUTTER.BOAT_DETECTION_SHARE_DIST + TUNING.MAX_WALKABLE_PLATFORM_RADIUS * 2 end,
+		enable_fn = function(inst) return ThePlayer:GetCurrentPlatform() ~= nil  end
+	},
+
+	-- UM MOD
+	{
+		prefab_fn = function(inst) return inst.prefab == "um_pawn" end,
+		radius_fn = function(inst) return 7+2*WANDER_TOLERANCE end -- wander as fast speed
+	},
+	{
+		prefab_fn = function(inst) return inst.prefab == "snowpile" end,
+		radius_fn = function(inst) return 2 end
+	},
+	{
+		prefab_fn = function(inst) return inst.prefab == "um_bear_trap" or inst.prefab == "um_bear_trap_old"  end,
+	 	radius_fn = function(inst) return TUNING.TRAP_TEETH_RADIUS * 1.3  end,
+		enable_fn = function(inst) return inst:HasTag("mineactive") and not IgnoreMineTrigger(ThePlayer) end
+	},
+
+	-- ISLAND ADVANTURE MOD
+	-- (FIXME: should register pathfinding walls with correct position offset, maybe should write a new component for it)
+	-- {	prefab_fn = function(inst) return inst.prefab and inst.prefab == "network_flood" end,
+	-- 	radius_fn = function(inst) return TILE_SCALE/2 end,
+	-- 	enable_fn = function(inst) return not IgnoreFloodSlowDown(ThePlayer) end
+	-- },
+
+	{
+		prefab_fn = function(inst) return inst.prefab == "flup" end,
+		radius_fn = function(inst) return 5 end
+	},
+	-- {
+	-- 	prefab_fn = function(inst) return inst.prefab == "dragoon" end,
+	-- 	radius_fn = function(inst) return TUNING.DRAGOON_TARGET_DIST or 8 end
+	-- },
+	{
+		prefab_fn = function(inst) return inst.prefab == "elephantcactus_active" end,
+		radius_fn = function(inst) return 5 end, 
+		enable_fn = function(inst) return not ThePlayer:HasTag("armorcactus") end
+	},
+	{
+		prefab_fn = function(inst) return inst.prefab == "whale_white" end,
+		radius_fn = function(inst) return TUNING.WHALE_WHITE_TARGET_DIST or 15 end
+	},
+	{
+		prefab_fn = function(inst) return inst.prefab == "poisonhole" end,
+		radius_fn = function(inst) return 3 end,
+		enable_fn = function(inst) return not ThePlayer.prefab == "wx78" end
+		-- enable_fn = function(inst) return not ThePlayer.poisonimmune end -- server only, plz leave a way to check immune in client side
+	},
+
+	-- PorkLand MOD
+	{
+		prefab_fn = function(inst) return inst.prefab == "adult_flytrap" end,
+		radius_fn = function(inst) return 5 end
+	},
+	{
+		prefab_fn = function(inst) return inst.prefab == "grabbing_vine" end,
+		radius_fn = function(inst) return TUNING.GRABBING_VINE_TARGET_DIST or 3 end,
+		enable_fn = function(inst) return not ThePlayer:HasTag("plantkin") end
 	},
 }
 

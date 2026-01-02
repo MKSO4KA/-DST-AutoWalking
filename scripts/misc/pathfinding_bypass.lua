@@ -4,7 +4,7 @@
 -- register pathfinding wall to more obstacles based on their physics radius ,for avoiding stucked
 -- it only walks during the autowalking and unregister when walking is over
 local function ObstaclesToRegisterPathfinding(inst)
-	return 	inst and inst:HasTag("blocker") and inst.Physics
+	return 	inst and inst.Physics and inst:HasTag("blocker") or inst:HasTag("boat")
 		 and (
 			inst:GetPhysicsRadius(0) >= .4
 					--4 stuffs that player prefers to use in blocking
@@ -36,7 +36,6 @@ AddPrefabPostInitAny(function (inst)
 			inst:AddComponent("ngl_custompfwalls")
 			inst.components.ngl_custompfwalls.radius_fn = subtab.radius_fn or nil
 			inst.components.ngl_custompfwalls.enable_fn = subtab.enable_fn or nil
-			return
 		end
 	end
 
